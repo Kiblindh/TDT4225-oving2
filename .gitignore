@@ -1,0 +1,14 @@
+# Ignore CSV files in porto folder
+porto/porto/porto.csv
+
+# Ignore MacOS system files in porto folder
+porto/__MACOSX/
+porto/.DS_Store
+
+# Ignore temporary files in porto folder
+porto/*.tmp
+porto/*.log
+
+# Ignore Python cache in porto folder
+porto/__pycache__/
+porto/*.pyc
