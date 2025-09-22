@@ -1,0 +1,32 @@
+Database design:
+
+
+Trip (table)
+- Trip_ID (primary key)
+- ORIGIN_CALL (ID of client calling for taxi, only set when call_type = A, foreign key)
+- TAXI_ID (foreign key)
+- TIMESTAMP
+- List of PointID (foreign key)
+- ORIGIN_STAND
+
+
+Taxi (table):
+- TaxiID (primary key)
+- TripIds (list of TripID (foreign key) to the Trip table)
+- 
+
+Point:
+- PointID (primary key)
+- Longitude
+- Latitude
+
+Relationships:
+Taxi-Trip (one-to-many relationship)
+=> A trip can only contain one taxi, but a taxi can contain many trips
+
+
+Data cleaning:
+1) Have to find the number of invalid trips (less than 3 points) and mark them as invalid or remove the samples from the data
+2) Have to decide what to do with the 10 samples that has MISSING_DATA = TRUE
+3) Since all samples has DAY_TYPE = A, it might be possible to remove this column entirely since it doesn't provide any value per now
+ 
