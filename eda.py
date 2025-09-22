@@ -92,8 +92,14 @@ print(f"Average number of trips per TAXI_ID: {average_trips}")
 top_taxis = df['TAXI_ID'].value_counts().head(20).index.tolist()
 print("TAXI_IDs with the 20 most trips:", top_taxis)
 
-"""Too expensive to run (Task 2-7)
-# Check the number of invalid trips (fewer than 3 points in POLYLINE)
-invalid_trip_count = df['POLYLINE'].apply(lambda x: len(ast.literal_eval(x)) < 3).sum()
-print(f"Number of invalid trips: {invalid_trip_count}")
+
+"""Task 2-7, should be cleaned somehow either by removing or inferring"""
+"""Task 2-7 takes long to run, result shown in screenshot
+count = 0
+chunksize = 10000  # Adjust based on your memory
+
+for chunk in pd.read_csv('porto/porto/porto.csv', chunksize=chunksize):
+    count += chunk['POLYLINE'].apply(lambda x: len(ast.literal_eval(x)) < 3).sum()
+
+print(f"Number of rows with less than 3 points in POLYLINE: {count}")
 """
