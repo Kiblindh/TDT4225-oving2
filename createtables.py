@@ -2,6 +2,8 @@
 from DbConnector import DbConnector
 from tabulate import tabulate
 import pandas as pd
+import ast
+
 
 class CreateTables:
     def __init__(self):
@@ -24,7 +26,7 @@ class CreateTables:
     def create_point_table(self, table_name):
         query = '''
             CREATE TABLE IF NOT EXISTS %s (
-                pointId INT PRIMARY KEY,
+                pointId INT PRIMARY KEY AUTO_INCREMENT,
                 latitude DOUBLE NOT NULL,
                 longitude DOUBLE NOT NULL
             )
@@ -35,7 +37,7 @@ class CreateTables:
     def create_path_table(self, table_name):
         query = '''
             CREATE TABLE IF NOT EXISTS %s(
-                tripId INTEGER NOT NULL,
+                tripId BIGINT NOT NULL,
                 pointId INTEGER NOT NULL,
                 idx INTEGER NOT NULL,
                 FOREIGN KEY (tripId) REFERENCES trip(tripId) ON DELETE CASCADE,
@@ -49,7 +51,7 @@ class CreateTables:
     def create_origin_call_table(self, table_name):
         query = '''
             CREATE TABLE IF NOT EXISTS %s(
-                tripId INT PRIMARY KEY,
+                tripId BIGINT PRIMARY KEY,
                 callerId INTEGER NOT NULL,
                 FOREIGN KEY (tripId) REFERENCES trip(tripId)
             )
@@ -60,7 +62,7 @@ class CreateTables:
     def create_origin_stand_table(self, table_name):
         query = '''
             CREATE TABLE IF NOT EXISTS %s(
-                tripId INT PRIMARY KEY,
+                tripId BIGINT PRIMARY KEY,
                 standId INTEGER NOT NULL,
                 FOREIGN KEY (tripId) REFERENCES trip(tripId)
             )
@@ -78,42 +80,77 @@ class CreateTables:
         rows = self.cursor.fetchall()
         print(tabulate(rows, headers=self.cursor.column_names))
 
-    def read_porto_csv(filepath='porto/porto/porto.csv'):
+    def read_porto_csv(self, filepath='porto/porto/porto.csv', **kwargs):
         """
         Reads the porto.csv file and returns a pandas DataFrame.
         """
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(filepath, **kwargs)
         return df
 
     def insert_data(self):
-        df = self.read_porto_csv()
-        for row in df:
-            tripId = row['TRIP_ID'].astype(int)
-            taxiId = row['TAXI_ID'].astype(int)
+        df = self.read_porto_csv(nrows=100) # Read only 100 first for testing
+        for _, row in df.iterrows():
+            tripId = int(row['TRIP_ID'])
+            taxiId = int(row['TAXI_ID'])
             startTime = pd.to_datetime(row['TIMESTAMP'], unit='s')
-            dayType = row['DAY_TYPE'].astype(str)
-            missingData = row['MISSING_DATA'].astype(bool)
-            callerId = row['ORIGIN_CALL'].astype(int) if not pd.isnull(row['ORIGIN_CALL']) else None
-            standId = row['ORIGIN_STAND'].astype(int) if not pd.isnull(row['ORIGIN_STAND']) else None
-            
+            dayType = str(row['DAY_TYPE'])
+            missingData = bool(row['MISSING_DATA'])
 
             tripQuery = """
             INSERT INTO trip (tripId, taxiId, startTime, dayType, missingData) VALUES (%s, %s, %s, %s, %s)
             """
-
             self.cursor.execute(tripQuery, (tripId, taxiId, startTime, dayType, missingData))
+            
+            callerId = int(row['ORIGIN_CALL']) if not pd.isnull(row['ORIGIN_CALL']) else None
+            if(callerId is not None):
+                originCallQuery = """
+                INSERT INTO origin_call (tripId, callerId) VALUES (%s, %s)"""
+                self.cursor.execute(originCallQuery, (tripId, callerId))
+
+            standId = int(row['ORIGIN_STAND']) if not pd.isnull(row['ORIGIN_STAND']) else None
+            if(standId is not None):
+                originStandQuery = """
+                INSERT INTO origin_stand (tripId, standId) VALUES (%s, %s)"""
+                self.cursor.execute(originStandQuery, (tripId, standId))
+
+            polyline = ast.literal_eval(row['POLYLINE'])
+            for idx, point in enumerate(polyline):
+                longitude = float(point[0])
+                latitude = float(point[1])
+                pointQuery = """
+                INSERT INTO point (longitude, latitude) VALUES (%s, %s)
+                """
+                self.cursor.execute(pointQuery, (longitude, latitude))
+                pointId = self.cursor.lastrowid # Get the auto-incremented pointId (primary key of last execution)
+                pathQuery = """
+                INSERT INTO path (tripId, pointId, idx) VALUES (%s, %s, %s)
+                """
+                self.cursor.execute(pathQuery, (tripId, pointId, idx))
         self.db_connection.commit()
+
+    def clean_database(self):
+        tables = ['path', 'point', 'origin_call', 'origin_stand', 'trip']
+        for table in tables:
+            self.cursor.execute(f"DROP TABLE IF EXISTS {table};")
+        self.db_connection.commit()
+        print("All tables have been cleaned.")
 
 def main():
     program = None
     try:
         program = CreateTables()
+        program.clean_database()
         program.create_trip_table("trip")
         program.create_point_table("point")
         program.create_path_table("path")
         program.create_origin_call_table("origin_call")
         program.create_origin_stand_table("origin_stand")
         program.show_tables()
+        program.insert_data()
+        program.show_tables()
+        program.cursor.execute("SELECT * FROM trip")
+        rows = program.cursor.fetchall()
+        print(tabulate(rows, headers=program.cursor.column_names))
     except Exception as e:
         print("ERROR: Failed to run example:", e)
     finally:
