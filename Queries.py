@@ -171,12 +171,77 @@ class Queries:
     
     #Find pairs of different taxis that were within 5m and within 5 seconds of each
     #other at least once.
-    def task8(self): #TODO Write command
+    def task8(self):
         query = """
+            WITH TripBoundaries AS (
+                SELECT 
+                    t.Trip_ID,
+                    t.TAXI_ID,
+                    FROM_UNIXTIME(t.TIMESTAMP) AS TimeStart,
+                    FROM_UNIXTIME(t.TIMESTAMP) + INTERVAL (MAX(p.`index`) * 15) SECOND AS TimeEnd
+                FROM Trip t
+                JOIN Path p ON p.TripID = t.Trip_ID
+                GROUP BY t.Trip_ID, t.TAXI_ID, t.TIMESTAMP
+            ),
+
+            candidate_trips AS (
+                SELECT 
+                    a.Trip_ID AS TripA, 
+                    b.Trip_ID AS TripB,
+                    a.TAXI_ID AS TaxiA, 
+                    b.TAXI_ID AS TaxiB
+                FROM TripBoundaries a
+
+                JOIN TripBoundaries b
+                  ON a.TAXI_ID < b.TAXI_ID
+                 AND a.TimeStart <= b.TimeEnd + INTERVAL 5 SECOND
+                 AND b.TimeStart <= a.TimeEnd + INTERVAL 5 SECOND
+            )
+            SELECT DISTINCT
+                LEAST(e1.TAXI_ID, e2.TAXI_ID)    AS TaxiA,                      
+                GREATEST(e1.TAXI_ID, e2.TAXI_ID) AS TaxiB
+            FROM candidate_trips c
+
+            JOIN Path pa1 ON pa1.TripID = c.TripA
+            JOIN Point pt1 ON pt1.PointID = pa1.PointID
+            JOIN Trip t1   ON t1.Trip_ID = c.TripA
+
+            JOIN Path pa2 ON pa2.TripID = c.TripB
+            JOIN Point pt2 ON pt2.PointID = pa2.PointID
+            JOIN Trip t2   ON t2.Trip_ID = c.TripB
+            CROSS JOIN LATERAL (
+                SELECT 
+                    FROM_UNIXTIME(t1.TIMESTAMP) + INTERVAL (pa1.index*15) SECOND AS ts,
+                    pt1.Longitude AS lon,
+                    pt1.Latitude  AS lat,
+                    t1.TAXI_ID    AS TAXI_ID
+            ) AS e1
+
+            CROSS JOIN LATERAL (
+                SELECT 
+                    FROM_UNIXTIME(t2.TIMESTAMP) + INTERVAL (pa2.index*15) SECOND AS ts,
+                    pt2.Longitude AS lon,
+                    pt2.Latitude  AS lat,
+                    t2.TAXI_ID    AS TAXI_ID
+            ) AS e2
             
+            WHERE ABS(TIMESTAMPDIFF(SECOND, e1.ts, e2.ts)) <= 5
+              AND ABS(e1.lat - e2.lat) < 0.00006
+              AND ABS(e1.lon - e2.lon) < 0.00006 / COS(RADIANS((e1.lat + e2.lat)/2))
+              AND (
+                 2*6371000*ASIN(
+                   SQRT(
+                     POWER(SIN(RADIANS((e2.lat - e1.lat)/2)),2) +
+                     COS(RADIANS(e1.lat))*COS(RADIANS(e2.lat))*
+                     POWER(SIN(RADIANS((e2.lon - e1.lon)/2)),2)
+                   )
+                 )
+              ) <= 5;         
         """
         self.cursor.execute(query)
+        TaxiPairs = self.cursor.fetchall()
         self.db_connection.commit()
+        return TaxiPairs
 
     #Find the trips that started on one calendar day and ended on the next (midnight
     #crossers).
