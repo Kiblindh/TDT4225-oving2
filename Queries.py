@@ -30,10 +30,9 @@ class Queries:
     def task2(self):
         query = """
             SELECT
-            ROUND(     
-            COUNT(*)::numeric 
-            / NULLIF( COUNT(DISTINCT TAXI_ID), 0 ), 2 
-            ) AS AverageTripsPerTaxi
+                ROUND(
+                    COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT TAXI_ID), 0), 2
+                ) AS AverageTripsPerTaxi
             FROM Trip;
         """
         self.cursor.execute(query)
@@ -82,43 +81,53 @@ class Queries:
     def task5(self):
         query = """
             WITH pts AS (
-                SELECT p.TripID, p.index, pt.Latitude AS lat, pt.Longitude AS lon
+                SELECT 
+                    p.TripID, 
+                    p.index, 
+                    pt.Latitude AS lat, 
+                    pt.Longitude AS lon
                 FROM Path p
                 JOIN Point pt ON pt.PointID = p.PointID
             ),
             segments AS (
-                SELECT TripID, lat, lon,
-                       LEAD(lat) OVER (PARTITION BY TripID ORDER BY index) AS lat2,
-                       LEAD(lon) OVER (PARTITION BY TripID ORDER BY index) AS lon2
+                SELECT 
+                    TripID, 
+                    lat, 
+                    lon,
+                    LEAD(lat) OVER (PARTITION BY TripID ORDER BY index) AS lat2,
+                    LEAD(lon) OVER (PARTITION BY TripID ORDER BY index) AS lon2
                 FROM pts
             ),
             PerTrip AS (
-              SELECT TripID,
-                     COUNT(*) + 1 AS TotalPoints,
-                     SUM(
-                       2 * 6371000 * asin(
-                         sqrt(
-                           power(sin(radians((lat2 - lat) / 2)), 2) +
-                           cos(radians(lat)) * cos(radians(lat2)) *
-                           power(sin(radians((lon2 - lon) / 2)), 2)
-                         )
-                       )
-                     ) AS Distance
-              FROM segments
-              WHERE lat2 IS NOT NULL
-              GROUP BY TripID
+                SELECT 
+                    TripID,
+                    COUNT(*) + 1 AS TotalPoints,
+                    SUM(
+                        2 * 6371000 * ASIN(
+                            SQRT(
+                                POWER(SIN(RADIANS((lat2 - lat) / 2)), 2) +
+                                COS(RADIANS(lat)) * COS(RADIANS(lat2)) *
+                                POWER(SIN(RADIANS((lon2 - lon) / 2)), 2)
+                            )
+                        )
+                    ) AS Distance
+                FROM segments
+                WHERE lat2 IS NOT NULL
+                GROUP BY TripID
             ),
             TripTaxi AS (
-              SELECT t.TAXI_ID,
-                     p.TripID,
-                     (GREATEST(p.TotalPoints - 1, 0) * 15) AS Duration,
-                     p.Distance
-              FROM Trip t
-              JOIN PerTrip p ON p.TripID = t.Trip_ID
+                SELECT 
+                    t.TAXI_ID,
+                    p.TripID,
+                    (GREATEST(p.TotalPoints - 1, 0) * 15) AS Duration,
+                    p.Distance
+                FROM Trip t
+                JOIN PerTrip p ON p.TripID = t.Trip_ID
             )
-            SELECT TAXI_ID,
-                   SUM(Duration) / 3600.0 AS TotalHours,
-                   SUM(Distance) AS TotalDistance
+            SELECT 
+                TAXI_ID,
+                SUM(Duration) / 3600.0 AS TotalHours,
+                SUM(Distance) AS TotalDistance           
             FROM TripTaxi
             GROUP BY TAXI_ID
             ORDER BY TotalHours DESC, TotalDistance DESC;
@@ -175,25 +184,23 @@ class Queries:
         query = """
             WITH PerTrip AS (
                 SELECT
-                  Trip.Trip_ID,
-                  to_timestamp(Trip.timestamp) AS StartTime,
-                  (GREATEST(COUNT(*) - 1, 0) * 15) AS Duration
+                    Trip.Trip_ID,
+                    FROM_UNIXTIME(Trip.timestamp) AS StartTime,
+                    (GREATEST(COUNT(*) - 1, 0) * 15) AS Duration
                 FROM Trip
                 JOIN Path ON Path.TripID = Trip.Trip_ID
                 GROUP BY Trip.Trip_ID, Trip.timestamp
             ),
             EndCompute AS (
-              SELECT
-                Trip_ID,
-                StartTime,
-                StartTime + make_interval(secs => Duration) AS EndTime
-              FROM PerTrip
+                SELECT
+                    Trip_ID,
+                    StartTime,
+                    StartTime + INTERVAL Duration SECOND AS EndTime
+                FROM PerTrip
             )
-            SELECT
-              Trip_ID
+            SELECT Trip_ID
             FROM EndCompute
-            WHERE
-              DATE(StartTime) <> DATE(EndTime)
+            WHERE DATE(StartTime) <> DATE(EndTime)
             ORDER BY Trip_ID;
         """
         self.cursor.execute(query)
