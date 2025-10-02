@@ -5,7 +5,7 @@ class Queries:
     def __init__(self):
         self.connection = DbConnector()
         self.db_connection = self.connection.db_connection
-        self.cursor = self.connection.cursor()
+        self.cursor = self.connection.cursor
 
 
     # How many taxis, trips, and total GPS points are there?
@@ -277,9 +277,53 @@ class Queries:
     #trips).
     def task10(self): #TODO Write command
         query = """
-            
+            WITH min_max_path AS (
+            SELECT
+                shortened_path.tripId,
+                min_path.pointId AS first_pointId,
+                max_path.pointId AS last_pointId
+            FROM (
+                SELECT tripId, MIN(idx) AS min_idx, MAX(idx) AS max_idx
+                FROM path
+                GROUP BY tripId
+            ) AS shortened_path
+            JOIN path AS min_path
+                ON min_path.tripId = shortened_path.tripId AND min_path.idx = shortened_path.min_idx
+            JOIN path AS max_path
+                ON max_path.tripId = shortened_path.tripId AND max_path.idx = shortened_path.max_idx
+            ),
+            -- join those to the point table
+            trips AS (
+                SELECT
+                    trip.tripId,
+                    p_first.latitude AS first_lat,
+                    p_first.longitude AS first_lon,
+                    p_last.latitude AS last_lat,
+                    p_last.longitude AS last_lon
+                FROM min_max_path trip
+                JOIN point p_first ON p_first.pointId = trip.first_pointId
+                JOIN point p_last ON p_last.pointId  = trip.last_pointId
+                )
+            SELECT
+                tripId,
+                first_lat,
+                first_lon,
+                last_lat,
+                last_lon,
+                2 * 6371000 * ASIN(
+                    SQRT(
+                        POWER(SIN(RADIANS((last_lat - first_lat) / 2)), 2) +
+                        COS(RADIANS(first_lat)) * COS(RADIANS(last_lat)) *
+                        POWER(SIN(RADIANS((last_lon - first_lon) / 2)), 2)
+                    )
+                ) AS travelDistanceInMeters
+            FROM trips
+            HAVING travelDistanceInMeters < 50
+            ORDER BY tripId;
         """
         self.cursor.execute(query)
+        results = self.cursor.fetchall()
+        print(tabulate(results, headers=[desc[0] for desc in self.cursor.description]))
         self.db_connection.commit()
 
     #For each taxi, compute the average idle time between consecutive trips. List the
@@ -291,28 +335,28 @@ class Queries:
         self.cursor.execute(query)
         self.db_connection.commit()
 
-    #Main function to run all tasks, temporarily here for easy access
-    def main():
-        program = None
-        try:
-            program = Queries()
-            #program.task1()
-            #program.task2()
-            #program.task3()
-            #program.task4a()
-            #program.task4b()
-            #program.task5()
-            #program.task6()
-            #program.task7()
-            #program.task8()
-            #program.task9()
-            #program.task10()
-            #program.task11()
-        except Exception as e:
-            print("ERROR: Failed to run queries:", e)
-        finally:
-            if program is not None:
-                program.connection.close_connection()
+#Main function to run all tasks, temporarily here for easy access
+def main():
+    program = None
+    try:
+        program = Queries()
+        #program.task1()
+        #program.task2()
+        #program.task3()
+        #program.task4a()
+        #program.task4b()
+        #program.task5()
+        #program.task6()
+        #program.task7()
+        #program.task8()
+        #program.task9()
+        program.task10()
+        #program.task11()
+    except Exception as e:
+        print("ERROR: Failed to run queries:", e)
+    finally:
+        if program is not None:
+            program.connection.close_connection()
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
