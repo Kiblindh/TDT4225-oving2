@@ -278,14 +278,14 @@ class Queries:
     def task10(self): #TODO Write command
         query = """
             WITH min_max_path AS (
-            SELECT
-                shortened_path.tripId,
-                min_path.pointId AS first_pointId,
-                max_path.pointId AS last_pointId
-            FROM (
-                SELECT tripId, MIN(idx) AS min_idx, MAX(idx) AS max_idx
-                FROM path
-                GROUP BY tripId
+                SELECT
+                    shortened_path.tripId,
+                    min_path.pointId AS first_pointId,
+                    max_path.pointId AS last_pointId
+                FROM (
+                    SELECT tripId, MIN(idx) AS min_idx, MAX(idx) AS max_idx
+                    FROM path
+                    GROUP BY tripId
             ) AS shortened_path
             JOIN path AS min_path
                 ON min_path.tripId = shortened_path.tripId AND min_path.idx = shortened_path.min_idx
@@ -330,9 +330,41 @@ class Queries:
     #top 20 taxis with the highest average idle time.
     def task11(self): #TODO Write command
         query = """
-            
+        -- First, get start and end times for each trip
+        WITH trip_times AS (
+            SELECT 
+                tripId,
+                taxiId,
+                startTime,
+                startTime + INTERVAL ((
+                    SELECT MAX(idx) 
+                    FROM path 
+                    WHERE path.tripId = trip.tripId
+                ) * 15) SECOND AS endTime
+            FROM trip
+        ),
+        -- Next, compute idle times between consecutive trips for each taxi
+        idle_times AS (
+            SELECT
+                taxiId,
+                endTime,
+                LEAD(startTime) OVER (PARTITION BY taxiId ORDER BY startTime) AS nextStartTime
+            FROM trip_times
+        )
+        -- Finally, calculate average idle time per taxi and return top 20
+        SELECT
+            taxiId,
+            ROUND(AVG(TIMESTAMPDIFF(SECOND, endTime, nextStartTime))/60, 2) AS avgIdleMinutes,
+            COUNT(*) AS idlePeriods
+        FROM idle_times
+        WHERE nextStartTime IS NOT NULL -- Removes taxis with only 1 trip
+        GROUP BY taxiId
+        ORDER BY avgIdleMinutes DESC
+        LIMIT 20;
         """
         self.cursor.execute(query)
+        results = self.cursor.fetchall()
+        print(tabulate(results, headers=[desc[0] for desc in self.cursor.description]))
         self.db_connection.commit()
 
 #Main function to run all tasks, temporarily here for easy access
@@ -350,8 +382,8 @@ def main():
         #program.task7()
         #program.task8()
         #program.task9()
-        program.task10()
-        #program.task11()
+        #program.task10()
+        program.task11()
     except Exception as e:
         print("ERROR: Failed to run queries:", e)
     finally:
