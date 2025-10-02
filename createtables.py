@@ -149,15 +149,14 @@ def main():
     program = None
     try:
         program = CreateTables()
-        # program.clean_database()
-        """
+        program.clean_database()
         program.create_trip_table("trip")
         program.create_point_table("point")
         program.create_path_table("path")
         program.create_origin_call_table("origin_call")
         program.create_origin_stand_table("origin_stand")
         program.show_tables()
-        program.insert_data()"""
+        program.insert_data()
         program.show_tables()
     except Exception as e:
         print("ERROR: Failed to run example:", e)

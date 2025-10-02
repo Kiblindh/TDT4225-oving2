@@ -59,10 +59,36 @@ class Queries:
     # What is the most used call type per taxi?
     def task4a(self): #TODO Write command
         query = """
-
+            WITH TripCallTypes AS (
+                SELECT 
+                    tripTable.tripId,
+                    tripTable.taxiId,
+                    CASE
+                        WHEN originCall.callerId IS NOT NULL THEN 'A'
+                        WHEN originStand.standId IS NOT NULL THEN 'B'
+                        ELSE 'C'
+                    END AS callType
+                FROM trip tripTable
+                LEFT JOIN origin_call originCall ON tripTable.tripId = originCall.tripId
+                LEFT JOIN origin_stand originStand ON tripTable.tripId = originStand.tripId
+            ),
+            Counts AS (
+                SELECT
+                    taxiId,
+                    callType,
+                    COUNT(*) AS callCount,
+                    ROW_NUMBER() OVER (PARTITION BY taxiId ORDER BY COUNT(*) DESC) AS rn
+                FROM TripCallTypes
+                GROUP BY taxiId, callType
+            )
+            SELECT taxiId, callType, callCount
+            FROM Counts
+            WHERE rn = 1;
             """
 
         self.cursor.execute(query)
+        results = self.cursor.fetchall()
+        print(tabulate(results, headers=[desc[0] for desc in self.cursor.description]))
         self.db_connection.commit()
 
     # For each call type, compute the average trip duration and distance, and also
@@ -375,7 +401,7 @@ def main():
         #program.task1()
         #program.task2()
         #program.task3()
-        #program.task4a()
+        program.task4a()
         #program.task4b()
         #program.task5()
         #program.task6()
@@ -383,7 +409,7 @@ def main():
         #program.task8()
         #program.task9()
         #program.task10()
-        program.task11()
+        # program.task11()
     except Exception as e:
         print("ERROR: Failed to run queries:", e)
     finally:
