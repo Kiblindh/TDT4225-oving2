@@ -12,12 +12,12 @@ class Queries:
     def task1(self):
         queryTrips = """
             SELECT COUNT(*) AS trips,
-                   COUNT(DISTINCT TAXI_ID) AS Taxis
-            FROM Trip;
+                   COUNT(DISTINCT taxiId) AS Taxis
+            FROM trip;
         """
         queryPoints = """
             SELECT COUNT(*) AS Points
-            FROM Point;
+            FROM point;
         """
         self.cursor.execute(queryTrips)
         TotalTrips = self.cursor.fetchone()
@@ -31,30 +31,29 @@ class Queries:
         query = """
             SELECT
                 ROUND(
-                    COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT TAXI_ID), 0), 2
+                    COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT taxiId), 0), 2
                 ) AS AverageTripsPerTaxi
-            FROM Trip;
+            FROM trip;
         """
         self.cursor.execute(query)
         AverageTripsPerTaxi = self.cursor.fetchone()
-        self.db_connection.commit()
         return AverageTripsPerTaxi
 
     #List the top 20 taxis with the most trips.
     def task3(self): 
         query = """
             SELECT
-            TAXI_ID,
-            COUNT(*) AS Trips
-            FROM Trip
-            GROUP BY TAXI_ID
+                taxiId,
+                COUNT(*) AS Trips
+            FROM trip
+            GROUP BY taxiId
             ORDER BY Trips DESC
             LIMIT 20;
         """
         self.cursor.execute(query)
         Top20Taxis = self.cursor.fetchall()
-        self.db_connection.commit()
         return Top20Taxis
+
 
     # What is the most used call type per taxi?
     def task4a(self): #TODO Write command
@@ -108,25 +107,25 @@ class Queries:
         query = """
             WITH pts AS (
                 SELECT 
-                    p.TripID, 
-                    p.index, 
-                    pt.Latitude AS lat, 
-                    pt.Longitude AS lon
-                FROM Path p
-                JOIN Point pt ON pt.PointID = p.PointID
+                    p.tripId, 
+                    p.idx, 
+                    pt.latitude AS lat, 
+                    pt.longitude AS lon
+                FROM path p
+                JOIN point pt ON pt.pointId = p.pointId
             ),
             segments AS (
                 SELECT 
-                    TripID, 
+                    tripId, 
                     lat, 
                     lon,
-                    LEAD(lat) OVER (PARTITION BY TripID ORDER BY index) AS lat2,
-                    LEAD(lon) OVER (PARTITION BY TripID ORDER BY index) AS lon2
+                    LEAD(lat) OVER (PARTITION BY tripId ORDER BY idx) AS lat2,
+                    LEAD(lon) OVER (PARTITION BY tripId ORDER BY idx) AS lon2
                 FROM pts
             ),
             PerTrip AS (
                 SELECT 
-                    TripID,
+                    tripId,
                     COUNT(*) + 1 AS TotalPoints,
                     SUM(
                         2 * 6371000 * ASIN(
@@ -139,30 +138,29 @@ class Queries:
                     ) AS Distance
                 FROM segments
                 WHERE lat2 IS NOT NULL
-                GROUP BY TripID
+                GROUP BY tripId
             ),
             TripTaxi AS (
                 SELECT 
-                    t.TAXI_ID,
-                    p.TripID,
+                    t.taxiId,
+                    p.tripId,
                     (GREATEST(p.TotalPoints - 1, 0) * 15) AS Duration,
                     p.Distance
-                FROM Trip t
-                JOIN PerTrip p ON p.TripID = t.Trip_ID
+                FROM trip t
+                JOIN PerTrip p ON p.tripId = t.tripId
             )
             SELECT 
-                TAXI_ID,
+                taxiId,
                 SUM(Duration) / 3600.0 AS TotalHours,
-                SUM(Distance) AS TotalDistance           
+                SUM(Distance) AS TotalDistance
             FROM TripTaxi
-            GROUP BY TAXI_ID
+            GROUP BY taxiId
             ORDER BY TotalHours DESC, TotalDistance DESC;
-
         """
         self.cursor.execute(query)
         TaxiHoursDistance = self.cursor.fetchall()
-        self.db_connection.commit()
         return TaxiHoursDistance
+
 
     # Find the trips that passed within 100 m of Porto City Hall.
     #(longitude, latitude) = (-8.62911, 41.15794)
@@ -179,21 +177,21 @@ class Queries:
         query = """
             WITH PerTrip AS (
                 SELECT
-                  p.TripID,
+                  p.tripId,
                   COUNT(*) AS TotalPoints
-                FROM Path p
-                GROUP BY p.TripID
+                FROM path p
+                GROUP BY p.tripId
             )
             SELECT
                 COUNT(*) AS InvalidTrips
-            FROM Trip t
-            LEFT JOIN PerTrip pt ON pt.TripID = t.Trip_ID
+            FROM trip t
+            LEFT JOIN PerTrip pt ON pt.tripId = t.tripId
             WHERE COALESCE(pt.TotalPoints, 0) < 3;
         """
         self.cursor.execute(query)
         InvalidTrips = self.cursor.fetchone()
-        self.db_connection.commit()
         return InvalidTrips
+
     
     #Find pairs of different taxis that were within 5m and within 5 seconds of each
     #other at least once.
@@ -201,56 +199,55 @@ class Queries:
         query = """
             WITH TripBoundaries AS (
                 SELECT 
-                    t.Trip_ID,
-                    t.TAXI_ID,
-                    FROM_UNIXTIME(t.TIMESTAMP) AS TimeStart,
-                    FROM_UNIXTIME(t.TIMESTAMP) + INTERVAL (MAX(p.`index`) * 15) SECOND AS TimeEnd
-                FROM Trip t
-                JOIN Path p ON p.TripID = t.Trip_ID
-                GROUP BY t.Trip_ID, t.TAXI_ID, t.TIMESTAMP
+                    t.tripId,
+                    t.taxiId,
+                    FROM_UNIXTIME(CAST(t.startTime AS UNSIGNED)) AS TimeStart,
+                    FROM_UNIXTIME(CAST(t.startTime AS UNSIGNED)) + INTERVAL (MAX(p.idx) * 15) SECOND AS TimeEnd
+                FROM trip t
+                JOIN path p ON p.tripId = t.tripId
+                GROUP BY t.tripId, t.taxiId, t.startTime
             ),
-
             CandidateTrips AS (
                 SELECT 
-                    a.Trip_ID AS TripA, 
-                    b.Trip_ID AS TripB,
-                    a.TAXI_ID AS TaxiA, 
-                    b.TAXI_ID AS TaxiB
+                    a.tripId AS TripA, 
+                    b.tripId AS TripB,
+                    a.taxiId AS TaxiA, 
+                    b.taxiId AS TaxiB
                 FROM TripBoundaries a
-
                 JOIN TripBoundaries b
-                  ON a.TAXI_ID < b.TAXI_ID
+                  ON a.taxiId < b.taxiId
                  AND a.TimeStart <= b.TimeEnd + INTERVAL 5 SECOND
                  AND b.TimeStart <= a.TimeEnd + INTERVAL 5 SECOND
             )
             SELECT DISTINCT
-                LEAST(e1.TAXI_ID, e2.TAXI_ID)    AS TaxiA,                      
-                GREATEST(e1.TAXI_ID, e2.TAXI_ID) AS TaxiB
+                LEAST(e1.taxiId, e2.taxiId)    AS TaxiA,                      
+                GREATEST(e1.taxiId, e2.taxiId) AS TaxiB
             FROM CandidateTrips c
 
-            JOIN Path pa1 ON pa1.TripID = c.TripA
-            JOIN Point pt1 ON pt1.PointID = pa1.PointID
-            JOIN Trip t1   ON t1.Trip_ID = c.TripA
+            JOIN path pa1 ON pa1.tripId = c.TripA
+            JOIN point pt1 ON pt1.pointId = pa1.pointId
+            JOIN trip t1   ON t1.tripId = c.TripA
 
-            JOIN Path pa2 ON pa2.TripID = c.TripB
-            JOIN Point pt2 ON pt2.PointID = pa2.PointID
-            JOIN Trip t2   ON t2.Trip_ID = c.TripB
+            JOIN path pa2 ON pa2.tripId = c.TripB
+            JOIN point pt2 ON pt2.pointId = pa2.pointId
+            JOIN trip t2   ON t2.tripId = c.TripB
+
             CROSS JOIN LATERAL (
                 SELECT 
-                    FROM_UNIXTIME(t1.TIMESTAMP) + INTERVAL (pa1.index*15) SECOND AS ts,
-                    pt1.Longitude AS lon,
-                    pt1.Latitude  AS lat,
-                    t1.TAXI_ID    AS TAXI_ID
+                    FROM_UNIXTIME(CAST(t1.startTime AS UNSIGNED)) + INTERVAL (pa1.idx*15) SECOND AS ts,
+                    pt1.longitude AS lon,
+                    pt1.latitude  AS lat,
+                    t1.taxiId     AS taxiId
             ) AS e1
 
             CROSS JOIN LATERAL (
                 SELECT 
-                    FROM_UNIXTIME(t2.TIMESTAMP) + INTERVAL (pa2.index*15) SECOND AS ts,
-                    pt2.Longitude AS lon,
-                    pt2.Latitude  AS lat,
-                    t2.TAXI_ID    AS TAXI_ID
+                    FROM_UNIXTIME(CAST(t2.startTime AS UNSIGNED)) + INTERVAL (pa2.idx*15) SECOND AS ts,
+                    pt2.longitude AS lon,
+                    pt2.latitude  AS lat,
+                    t2.taxiId     AS taxiId
             ) AS e2
-            
+
             WHERE ABS(TIMESTAMPDIFF(SECOND, e1.ts, e2.ts)) <= 5
               AND ABS(e1.lat - e2.lat) < 0.00006
               AND ABS(e1.lon - e2.lon) < 0.00006 / COS(RADIANS((e1.lat + e2.lat)/2))
@@ -262,12 +259,12 @@ class Queries:
                      POWER(SIN(RADIANS((e2.lon - e1.lon)/2)),2)
                    )
                  )
-              ) <= 5;         
+              ) <= 5;
         """
         self.cursor.execute(query)
         TaxiPairs = self.cursor.fetchall()
-        self.db_connection.commit()
         return TaxiPairs
+
 
     #Find the trips that started on one calendar day and ended on the next (midnight
     #crossers).
@@ -275,29 +272,29 @@ class Queries:
         query = """
             WITH PerTrip AS (
                 SELECT
-                    Trip.Trip_ID,
-                    FROM_UNIXTIME(Trip.timestamp) AS StartTime,
+                    t.tripId,
+                    FROM_UNIXTIME(CAST(t.startTime AS UNSIGNED)) AS StartTime,
                     (GREATEST(COUNT(*) - 1, 0) * 15) AS Duration
-                FROM Trip
-                JOIN Path ON Path.TripID = Trip.Trip_ID
-                GROUP BY Trip.Trip_ID, Trip.timestamp
+                FROM trip t
+                JOIN path p ON p.tripId = t.tripId
+                GROUP BY t.tripId, t.startTime
             ),
             EndCompute AS (
                 SELECT
-                    Trip_ID,
+                    tripId,
                     StartTime,
                     StartTime + INTERVAL Duration SECOND AS EndTime
                 FROM PerTrip
             )
-            SELECT Trip_ID
+            SELECT tripId
             FROM EndCompute
             WHERE DATE(StartTime) <> DATE(EndTime)
-            ORDER BY Trip_ID;
+            ORDER BY tripId;
         """
         self.cursor.execute(query)
         TripIDs = self.cursor.fetchall()
-        self.db_connection.commit()
         return TripIDs
+
     
     #Find the trips whose start and end points are within 50 m of each other (circular
     #trips).
@@ -398,18 +395,18 @@ def main():
     program = None
     try:
         program = Queries()
-        #program.task1()
-        #program.task2()
-        #program.task3()
-        program.task4a()
+        #print(program.task1())
+        #print(program.task2())
+        #print(program.task3())
+        #program.task4a()
         #program.task4b()
-        #program.task5()
+        #print(program.task5())
         #program.task6()
-        #program.task7()
-        #program.task8()
-        #program.task9()
+        #print(program.task7())
+        #print(program.task8())
+        #print(program.task9())
         #program.task10()
-        # program.task11()
+        #program.task11()
     except Exception as e:
         print("ERROR: Failed to run queries:", e)
     finally:
