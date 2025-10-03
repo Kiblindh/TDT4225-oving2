@@ -1,4 +1,5 @@
 
+import mysql
 from DbConnector import DbConnector
 from tabulate import tabulate
 import pandas as pd
@@ -28,7 +29,8 @@ class CreateTables:
             CREATE TABLE IF NOT EXISTS %s (
                 pointId INT PRIMARY KEY AUTO_INCREMENT,
                 latitude DOUBLE NOT NULL,
-                longitude DOUBLE NOT NULL
+                longitude DOUBLE NOT NULL,
+                UNIQUE (latitude, longitude)
             )
         '''
         self.cursor.execute(query % table_name)
@@ -117,15 +119,23 @@ class CreateTables:
             for idx, point in enumerate(polyline):
                 longitude = float(point[0])
                 latitude = float(point[1])
-                pointQuery = """
-                INSERT INTO point (longitude, latitude) VALUES (%s, %s)
-                """
-                self.cursor.execute(pointQuery, (longitude, latitude))
-                pointId = self.cursor.lastrowid # Get the auto-incremented pointId (primary key of last execution)
-                pathQuery = """
-                INSERT INTO path (tripId, pointId, idx) VALUES (%s, %s, %s)
-                """
-                self.cursor.execute(pathQuery, (tripId, pointId, idx))
+                try: 
+                    pointQuery = """
+                    INSERT INTO point (longitude, latitude) VALUES (%s, %s)
+                    """
+                    self.cursor.execute(pointQuery, (longitude, latitude))
+                    pointId = self.cursor.lastrowid # Get the auto-incremented pointId (primary key of last execution)
+                except mysql.connector.errors.IntegrityError as e:
+                    if e.errno == 1062: # Duplicate entry
+                        self.cursor.execute("SELECT pointId FROM point WHERE latitude = %s AND longitude = %s", (latitude, longitude))
+                        pointId = self.cursor.fetchone()[0]
+                    else:
+                        raise
+                if pointId is not None:
+                    pathQuery = """
+                    INSERT INTO path (tripId, pointId, idx) VALUES (%s, %s, %s)
+                    """
+                    self.cursor.execute(pathQuery, (tripId, pointId, idx))
         self.db_connection.commit()
 
     def clean_database(self):
@@ -148,9 +158,6 @@ def main():
         program.show_tables()
         program.insert_data()
         program.show_tables()
-        program.cursor.execute("SELECT * FROM trip")
-        rows = program.cursor.fetchall()
-        print(tabulate(rows, headers=program.cursor.column_names))
     except Exception as e:
         print("ERROR: Failed to run example:", e)
     finally:
