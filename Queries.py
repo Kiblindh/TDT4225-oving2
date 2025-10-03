@@ -82,7 +82,8 @@ class Queries:
             )
             SELECT taxiId, callType, callCount
             FROM Counts
-            WHERE rn = 1;
+            WHERE rn = 1
+            LIMIT 20;
             """
 
         self.cursor.execute(query)
@@ -405,9 +406,9 @@ def main():
         #program.task6()
         #print(program.task7())
         #print(program.task8())
-        print(program.task9())
+        #print(program.task9())
         #program.task10()
-        #program.task11()
+        program.task11()
     except Exception as e:
         print("ERROR: Failed to run queries:", e)
     finally:

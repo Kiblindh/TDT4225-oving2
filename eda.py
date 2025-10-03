@@ -42,6 +42,8 @@ print("Start and End Meters: ",calculate_start_end_meters(df.iloc[0]))
 
 """EDA"""
 
+unique_trip_ids = df['TRIP_ID'].nunique()
+print(f"Number of unique TRIP_IDs: {unique_trip_ids}")
 
 # Call type distribution
 sns.countplot(x='CALL_TYPE', data=df)
