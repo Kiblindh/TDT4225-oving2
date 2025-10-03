@@ -208,13 +208,13 @@ class CreateTables:
                     latitude DOUBLE NOT NULL,
                     longitude DOUBLE NOT NULL,
                     KEY (latitude, longitude),
-                    KEY (tripId, idx) -- For fast lookups
+                    PRIMARY KEY (tripId, idx) -- For fast lookups
                 ) ENGINE=InnoDB
             """)
             # Bulk load staged points
             if tmp_paths:
                 cursor.executemany(
-                    "INSERT INTO tmp_paths (tripId, idx, latitude, longitude) VALUES (%s, %s, %s, %s)",
+                    "INSERT IGNORE INTO tmp_paths (tripId, idx, latitude, longitude) VALUES (%s, %s, %s, %s)",
                     tmp_paths
                 )
 
