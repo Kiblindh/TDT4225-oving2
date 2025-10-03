@@ -273,7 +273,7 @@ class Queries:
             WITH PerTrip AS (
                 SELECT
                     t.tripId,
-                    FROM_UNIXTIME(CAST(t.startTime AS UNSIGNED)) AS StartTime,
+                    t.startTime AS StartTime,
                     (GREATEST(COUNT(*) - 1, 0) * 15) AS Duration
                 FROM trip t
                 JOIN path p ON p.tripId = t.tripId
@@ -294,6 +294,7 @@ class Queries:
         self.cursor.execute(query)
         TripIDs = self.cursor.fetchall()
         return TripIDs
+
 
     
     #Find the trips whose start and end points are within 50 m of each other (circular
@@ -404,7 +405,7 @@ def main():
         #program.task6()
         #print(program.task7())
         #print(program.task8())
-        #print(program.task9())
+        print(program.task9())
         #program.task10()
         #program.task11()
     except Exception as e:
