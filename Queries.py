@@ -184,7 +184,7 @@ class Queries:
                 GROUP BY t.Trip_ID, t.TAXI_ID, t.TIMESTAMP
             ),
 
-            candidate_trips AS (
+            CandidateTrips AS (
                 SELECT 
                     a.Trip_ID AS TripA, 
                     b.Trip_ID AS TripB,
@@ -200,7 +200,7 @@ class Queries:
             SELECT DISTINCT
                 LEAST(e1.TAXI_ID, e2.TAXI_ID)    AS TaxiA,                      
                 GREATEST(e1.TAXI_ID, e2.TAXI_ID) AS TaxiB
-            FROM candidate_trips c
+            FROM CandidateTrips c
 
             JOIN Path pa1 ON pa1.TripID = c.TripA
             JOIN Point pt1 ON pt1.PointID = pa1.PointID
