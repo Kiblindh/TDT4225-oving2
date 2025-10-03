@@ -145,99 +145,101 @@ class CreateTables:
         self.db_connection.commit()
         print("All tables have been cleaned.")
 
-    def insert_data2(self):
-        df = self.read_porto_csv(nrows=10000)  # specify nrows for testing faster
+    def insert_data2(self, chunksize=10000):
+        # There are duplicate tripIds in the dataset, we should have some logic to only keep one of each tripId
+        df_iter = self.read_porto_csv(chunksize=chunksize, nrows=200000)  # specify nrows for testing faster
+        
+        for df in df_iter:
+            trips = []
+            origin_calls = []
+            origin_stands = []
+            tmp_paths = []  # (tripId, idx, latitude, longitude) - pointId comes later through staging table
 
-        trips = []
-        origin_calls = []
-        origin_stands = []
-        tmp_paths = []  # (tripId, idx, latitude, longitude) - pointId comes later through staging table
+            # Create python lists used for bulk insertion
+            for row in df.itertuples(index=False):
+                tripId = int(getattr(row, 'TRIP_ID'))
+                taxiId = int(getattr(row, 'TAXI_ID'))
+                startTime = pd.to_datetime(getattr(row, 'TIMESTAMP'), unit='s')
+                dayType = str(getattr(row, 'DAY_TYPE'))
+                missingData = bool(getattr(row, 'MISSING_DATA'))
 
-        # Create python lists used for bulk insertion
-        for row in df.itertuples(index=False):
-            tripId = int(getattr(row, 'TRIP_ID'))
-            taxiId = int(getattr(row, 'TAXI_ID'))
-            startTime = pd.to_datetime(getattr(row, 'TIMESTAMP'), unit='s')
-            dayType = str(getattr(row, 'DAY_TYPE'))
-            missingData = bool(getattr(row, 'MISSING_DATA'))
+                trips.append((tripId, taxiId, startTime, dayType, missingData))
 
-            trips.append((tripId, taxiId, startTime, dayType, missingData))
+                callerId = getattr(row, 'ORIGIN_CALL')
+                if pd.notnull(callerId):
+                    origin_calls.append((tripId, int(callerId)))
 
-            callerId = getattr(row, 'ORIGIN_CALL')
-            if pd.notnull(callerId):
-                origin_calls.append((tripId, int(callerId)))
+                standId = getattr(row, 'ORIGIN_STAND')
+                if pd.notnull(standId):
+                    origin_stands.append((tripId, int(standId)))
 
-            standId = getattr(row, 'ORIGIN_STAND')
-            if pd.notnull(standId):
-                origin_stands.append((tripId, int(standId)))
+                poly = ast.literal_eval(getattr(row, 'POLYLINE') or '[]')
+                for idx, (lon, lat) in enumerate(poly):
+                    tmp_paths.append((tripId, idx, float(lat), float(lon)))  # store lat, lon in this order for the UNIQUE index
 
-            poly = ast.literal_eval(getattr(row, 'POLYLINE') or '[]')
-            for idx, (lon, lat) in enumerate(poly):
-                tmp_paths.append((tripId, idx, float(lat), float(lon)))  # store lat, lon in this order for the UNIQUE index
-
-        cursor = self.cursor
-        connection = self.db_connection
-        try:
-            # Bulk trip insertion
-            cursor.executemany(
-                """
-                INSERT IGNORE INTO trip (tripId, taxiId, startTime, dayType, missingData)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                trips
-            )
-            # Bulk origin_call insertion
-            if origin_calls:
+            cursor = self.cursor
+            connection = self.db_connection
+            try:
+                # Bulk trip insertion
                 cursor.executemany(
-                    "INSERT INTO origin_call (tripId, callerId) VALUES (%s, %s)",
-                    origin_calls
+                    """
+                    INSERT IGNORE INTO trip (tripId, taxiId, startTime, dayType, missingData)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    trips
                 )
-            # Bulk origin_stand insertion
-            if origin_stands:
-                cursor.executemany(
-                    "INSERT INTO origin_stand (tripId, standId) VALUES (%s, %s)",
-                    origin_stands
-                )
+                # Bulk origin_call insertion
+                if origin_calls:
+                    cursor.executemany(
+                        "INSERT INTO origin_call (tripId, callerId) VALUES (%s, %s)",
+                        origin_calls
+                    )
+                # Bulk origin_stand insertion
+                if origin_stands:
+                    cursor.executemany(
+                        "INSERT INTO origin_stand (tripId, standId) VALUES (%s, %s)",
+                        origin_stands
+                    )
 
-            # Temp path table to ensure bulk path insertion 
-            cursor.execute("DROP TEMPORARY TABLE IF EXISTS tmp_paths")
-            cursor.execute("""
-                CREATE TEMPORARY TABLE tmp_paths (
-                    tripId   BIGINT NOT NULL,
-                    idx      INT NOT NULL,
-                    latitude DOUBLE NOT NULL,
-                    longitude DOUBLE NOT NULL,
-                    KEY (latitude, longitude),
-                    PRIMARY KEY (tripId, idx) -- For fast lookups
-                ) ENGINE=InnoDB
-            """)
-            # Bulk load staged points
-            if tmp_paths:
-                cursor.executemany(
-                    "INSERT IGNORE INTO tmp_paths (tripId, idx, latitude, longitude) VALUES (%s, %s, %s, %s)",
-                    tmp_paths
-                )
-
-                # Create points by using all unique lat, lon from paths in staged table
+                # Temp path table to ensure bulk path insertion 
+                cursor.execute("DROP TEMPORARY TABLE IF EXISTS tmp_paths")
                 cursor.execute("""
-                    INSERT IGNORE INTO point (latitude, longitude)
-                    SELECT DISTINCT tmpPath.latitude, tmpPath.longitude
-                    FROM tmp_paths tmpPath
+                    CREATE TEMPORARY TABLE tmp_paths (
+                        tripId   BIGINT NOT NULL,
+                        idx      INT NOT NULL,
+                        latitude DOUBLE NOT NULL,
+                        longitude DOUBLE NOT NULL,
+                        KEY (latitude, longitude),
+                        PRIMARY KEY (tripId, idx) -- For fast lookups
+                    ) ENGINE=InnoDB
                 """)
+                # Bulk load staged points
+                if tmp_paths:
+                    cursor.executemany(
+                        "INSERT IGNORE INTO tmp_paths (tripId, idx, latitude, longitude) VALUES (%s, %s, %s, %s)",
+                        tmp_paths
+                    )
 
-                # Join staged paths with points to get pointId, then insert all paths into main path table
-                cursor.execute("""
-                    INSERT IGNORE INTO path (tripId, pointId, idx)
-                    SELECT path.tripId, currentPoint.pointId, path.idx
-                    FROM tmp_paths path
-                    JOIN point currentPoint
-                    ON currentPoint.latitude = path.latitude AND currentPoint.longitude = path.longitude
-                """)
+                    # Create points by using all unique lat, lon from paths in staged table
+                    cursor.execute("""
+                        INSERT IGNORE INTO point (latitude, longitude)
+                        SELECT DISTINCT tmpPath.latitude, tmpPath.longitude
+                        FROM tmp_paths tmpPath
+                    """)
 
-            connection.commit()
-        except:
-            connection.rollback()
-            raise
+                    # Join staged paths with points to get pointId, then insert all paths into main path table
+                    cursor.execute("""
+                        INSERT IGNORE INTO path (tripId, pointId, idx)
+                        SELECT path.tripId, currentPoint.pointId, path.idx
+                        FROM tmp_paths path
+                        JOIN point currentPoint
+                        ON currentPoint.latitude = path.latitude AND currentPoint.longitude = path.longitude
+                    """)
+
+                connection.commit()
+            except:
+                connection.rollback()
+                raise
 
 
 def main():
