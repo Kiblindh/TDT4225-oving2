@@ -1,0 +1,1 @@
+Average trips per taxi: 3818.46
